@@ -1,0 +1,21 @@
+{
+  "name": "zk-tik-tak-toe",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx hardhat zkit clean ; npx hardhat zkit make; npx hardhat test"
+  },
+  "devDependencies": {
+    "@solarity/chai-zkit": "^0.3.3",
+    "@solarity/circom-lib": "^0.2.2",
+    "@solarity/hardhat-zkit": "^0.5.17",
+    "@types/mocha": "^10.0.10",
+    "circomlib": "^2.0.5",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0"
+  }
+}
