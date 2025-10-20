@@ -1,7 +1,67 @@
-cache/
-out/
-.env
+# OS
 .DS_Store
-node_modules
-generated-types
-zkit
+Thumbs.db
+
+# Env
+.env
+.env.*
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Foundry (forge)
+out/
+cache/
+broadcast/
+broadcast/*/11155111/
+broadcast/*/31337/
+broadcast/**/dry-run/
+lib/
+bin/
+
+# Circom / snarkjs build artifacts
+*.r1cs
+*.sym
+*.wasm
+*.wtns
+*.zkey
+*.ptau
+pot*.ptau
+circuit_*.zkey
+verification_key.json
+
+# Generated dirs (project-specific)
+tic_tak_toe_js/
+generated-types/
+zkit/
+
+# Docs
+docs/
+
+# Logs
+logs/
+*.log
+
+# Coverage
+coverage/
+*.lcov
+.lcov
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generic build output
+dist/
+build/
+tmp/
+temp/
+
+# Ignore Verfier contract since this is generated each time we run make all
+src/TikTakToeVerifier.sol

@@ -95,8 +95,12 @@ The board is valid if and only if this system has a satisfying assignment with s
 
 ## Installation
 
-``npm i``
+``npm i`` then ``npm install -g snarkjs@latest`` then ````
 
-## Testing
+## Testing (Hardhat)
 
 ``npm run test``
+
+## Testing (Foundry)
+
+``make all`` then ``forge test -vvvvv`` depending on how much verbosity you need adjust the accordingly or if you want to run individual tests run ``forge test -vvvvv --mt test_Player1WinsRow0``

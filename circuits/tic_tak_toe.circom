@@ -3,6 +3,22 @@ pragma circom 2.1.9;
 include "circomlib/circuits/comparators.circom";
 include "circomlib/circuits/bitify.circom";
 
+/// @title Tic-Tac-Toe Win Verification Circuit
+/// @notice Proves that a specific player has achieved a winning configuration on a game board
+/// @dev This circuit enables privacy-preserving game verification where players can prove
+///      they won without revealing opponent moves. Each player holds their own view of the
+///      board and can generate a zero-knowledge proof of victory for adjudication.
+///
+/// Board encoding: Each cell ∈ {0, 1, 2} where:
+///   - 0 = player 0's mark
+///   - 1 = player 1's mark
+///   - 2 = empty cell
+///
+/// Win conditions: A player wins by placing their mark in all cells of any:
+///   - Horizontal row
+///   - Vertical column
+///   - Main diagonal (top-left to bottom-right)
+///   - Anti-diagonal (top-right to bottom-left)
 template CheckBoard(board_size) {
     signal input board[board_size][board_size];
     signal input player;
@@ -59,8 +75,8 @@ template CheckBoard(board_size) {
 template IsNonZero() {
     signal input in;
     signal output out;
-    // We could do this without IsZero but
-    // This is ayt for now
+    // We could do this without IsZero by computing the inverse but
+    // This is ayt for now and easier :XD
     component iz = IsZero();
     iz.in <== in;
     out <== 1 - iz.out;
@@ -69,7 +85,7 @@ template IsNonZero() {
 template TikTakToe(board_size) {
     signal input board[board_size][board_size];
     signal input player;
-    signal output solved;
+    signal output has_won;
 
     // We need to constraint the player value
     // player ∈ {0,1}
@@ -107,10 +123,10 @@ template TikTakToe(board_size) {
 
     signal final_sum <== win_accumulator[2*board_size + 2];
 
-    // solved = 1 iff final_sum != 0
+    // has_won = 1 iff final_sum != 0
     component isNonZero = IsNonZero();
     isNonZero.in <== final_sum;
-    solved <== isNonZero.out;
+    has_won <== isNonZero.out;
 }
 
 component main { public [board, player] } = TikTakToe(3);

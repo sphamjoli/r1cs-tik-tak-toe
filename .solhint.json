@@ -1,0 +1,19 @@
+{
+  "extends": "solhint:recommended",
+  "rules": {
+    "func-order": ["error", {
+      "order": [
+        "constructor",
+        "receive",
+        "fallback",
+        "external",
+        "public",
+        "internal",
+        "private"
+      ]
+    }],
+    "max-line-length": ["warn", 100],
+    "quotes": ["error", "double"],
+    "compiler-version": ["error", ">=0.8.0"]
+  }
+}
