@@ -36,6 +36,7 @@ verification_key.json
 
 # Generated dirs (project-specific)
 tic_tak_toe_js/
+test/fixtures/
 generated-types/
 zkit/
 
@@ -65,3 +66,6 @@ temp/
 
 # Ignore Verfier contract since this is generated each time we run make all
 src/TikTakToeVerifier.sol
+
+# Lean dependency sources and build outputs
+proofs/lean/.lake/

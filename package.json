@@ -12,8 +12,14 @@
   },
   "scripts": {
     "postinstall": "bash scripts/install-circom.sh",
-    "test": "npx hardhat zkit clean ; npx hardhat zkit make; npx hardhat test",
-    "lint:sol": "solhint 'src/**/*.sol'"
+    "test": "hardhat zkit clean && hardhat zkit make && hardhat test",
+    "test:soundness": "make soundness",
+    "lint:sol": "solhint 'src/**/*.sol'",
+    "test:formal": "bun proofs/lean/check.cjs",
+    "prepare": "lefthook install",
+    "check:separators": "bun scripts/check-decorative-comments.cjs",
+    "check:lean": "bun proofs/lean/check.cjs",
+    "check": "bun run check:separators && bun run check:lean && bash scripts/check-solidity-format.sh"
   },
   "devDependencies": {
     "@solarity/chai-zkit": "^0.3.3",
@@ -23,6 +29,9 @@
     "circomlib": "^2.0.5",
     "solhint": "^6.0.1",
     "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0"
-  }
+    "tsconfig-paths": "^4.2.0",
+    "lefthook": "2.1.4",
+    "typescript": "5.9.2"
+  },
+  "packageManager": "bun@1.3.5"
 }

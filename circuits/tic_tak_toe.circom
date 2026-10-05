@@ -4,10 +4,10 @@ include "circomlib/circuits/comparators.circom";
 include "circomlib/circuits/bitify.circom";
 
 /// @title Tic-Tac-Toe Win Verification Circuit
-/// @notice Proves that a specific player has achieved a winning configuration on a game board
-/// @dev This circuit enables privacy-preserving game verification where players can prove
-///      they won without revealing opponent moves. Each player holds their own view of the
-///      board and can generate a zero-knowledge proof of victory for adjudication.
+/// @notice Computes whether the specified player has a winning line.
+/// @dev Public signals are [has_won, nine row-major board cells, player]. Boards are public.
+///      A valid proof may have has_won=0. Win claims must require has_won=1, authenticate
+///      legal play and funding, and bind the public board and player to the recorded game.
 ///
 /// Board encoding: Each cell ∈ {0, 1, 2} where:
 ///   - 0 = player 0's mark
@@ -75,8 +75,6 @@ template CheckBoard(board_size) {
 template IsNonZero() {
     signal input in;
     signal output out;
-    // We could do this without IsZero by computing the inverse but
-    // This is ayt for now and easier :XD
     component iz = IsZero();
     iz.in <== in;
     out <== 1 - iz.out;
@@ -130,14 +128,3 @@ template TikTakToe(board_size) {
 }
 
 component main { public [board, player] } = TikTakToe(3);
-
-/*
-INPUT = {
-  "board": [
-    [0, 0, 2],
-    [0, 1, 2],
-    [0, 0, 1]
-  ],
-  "player": 1
-}
-*/

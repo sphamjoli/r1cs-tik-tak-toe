@@ -1,30 +1,39 @@
-.PHONY: all compile powers-of-tau setup verifier create-fixture generate-all-fixtures verify-fixture calldata-fixture calldata-all clean help
+.PHONY: all compile powers-of-tau setup verifier create-fixture generate-all-fixtures verify-fixture calldata-fixture calldata-all clean help soundness
 
-all: compile powers-of-tau setup verifier generate-all-fixtures calldata-all
+# Local development setup only; deployment requires independently secured ceremony artifacts.
+PTAU_POWER ?= 8
+
+all: calldata-all
+
+powers-of-tau: compile
+setup: powers-of-tau
+verifier: setup
+generate-all-fixtures: verifier
+calldata-all: generate-all-fixtures
 
 compile:
 	@echo "==> Compiling circuit..."
-	npx circom circuits/tic_tak_toe.circom --r1cs --wasm --sym -l node_modules
+	bin/circom circuits/tic_tak_toe.circom --r1cs --wasm --sym -l node_modules
 
 powers-of-tau:
 	@echo "==> Generating Powers of Tau..."
-	npx snarkjs powersoftau new bn128 12 pot12_0000.ptau -v
-	npx snarkjs powersoftau contribute pot12_0000.ptau pot12_0001.ptau --name="First contribution" -v -e="random entropy"
-	npx snarkjs powersoftau contribute pot12_0001.ptau pot12_0002.ptau --name="Second contribution" -v -e="more random entropy"
-	npx snarkjs powersoftau prepare phase2 pot12_0002.ptau pot12_final.ptau -v
-	npx snarkjs powersoftau verify pot12_final.ptau
+	node_modules/.bin/snarkjs powersoftau new bn128 $(PTAU_POWER) pot$(PTAU_POWER)_0000.ptau -v
+	node scripts/contribute.cjs ptau pot$(PTAU_POWER)_0000.ptau pot$(PTAU_POWER)_0001.ptau "First contribution"
+	node scripts/contribute.cjs ptau pot$(PTAU_POWER)_0001.ptau pot$(PTAU_POWER)_0002.ptau "Second contribution"
+	node_modules/.bin/snarkjs powersoftau prepare phase2 pot$(PTAU_POWER)_0002.ptau pot$(PTAU_POWER)_final.ptau -v
+	node_modules/.bin/snarkjs powersoftau verify pot$(PTAU_POWER)_final.ptau
 
 setup:
 	@echo "==> Setting up circuit..."
-	npx snarkjs groth16 setup tic_tak_toe.r1cs pot12_final.ptau circuit_0000.zkey
-	npx snarkjs zkey contribute circuit_0000.zkey circuit_final.zkey --name="Circuit contribution" -v -e="circuit random entropy"
-	npx snarkjs zkey verify tic_tak_toe.r1cs pot12_final.ptau circuit_final.zkey
-	npx snarkjs zkey export verificationkey circuit_final.zkey verification_key.json
+	node_modules/.bin/snarkjs groth16 setup tic_tak_toe.r1cs pot$(PTAU_POWER)_final.ptau circuit_0000.zkey
+	node scripts/contribute.cjs zkey circuit_0000.zkey circuit_final.zkey "Circuit contribution"
+	node_modules/.bin/snarkjs zkey verify tic_tak_toe.r1cs pot$(PTAU_POWER)_final.ptau circuit_final.zkey
+	node_modules/.bin/snarkjs zkey export verificationkey circuit_final.zkey verification_key.json
 
 verifier:
 	@echo "==> Generating Solidity verifier..."
 	@mkdir -p src
-	npx snarkjs zkey export solidityverifier circuit_final.zkey src/TikTakToeVerifier.sol
+	node_modules/.bin/snarkjs zkey export solidityverifier circuit_final.zkey src/TikTakToeVerifier.sol
 
 create-fixture:
 	@if [ -z "$(NAME)" ] || [ -z "$(PLAYER)" ] || [ -z "$(MOVES)" ]; then \
@@ -33,8 +42,8 @@ create-fixture:
 	fi
 	@echo "==> Creating fixture: $(NAME)"
 	@mkdir -p test/fixtures/$(NAME)
-	@NAME=$(NAME) PLAYER=$(PLAYER) MOVES='$(MOVES)' node -e 'const fs=require("fs");const path=require("path");const moves=JSON.parse(process.env.MOVES);const b=Array(9).fill(2);moves.forEach(([r,c,p])=>{b[r*3+c]=p});const board=[b.slice(0,3),b.slice(3,6),b.slice(6,9)];const player=Number(process.env.PLAYER);const name=process.env.NAME;const fixturePath=path.join("test","fixtures",name);fs.writeFileSync(path.join(fixturePath,"input.json"),JSON.stringify({board,player}));fs.writeFileSync(path.join(fixturePath,"moves.json"),process.env.MOVES);'
-	@npx snarkjs groth16 fullprove \
+	@NAME=$(NAME) PLAYER=$(PLAYER) MOVES='$(MOVES)' bun -e 'const fs=require("fs");const path=require("path");const moves=JSON.parse(process.env.MOVES);const b=Array(9).fill(2);moves.forEach(([r,c,p])=>{b[r*3+c]=p});const board=[b.slice(0,3),b.slice(3,6),b.slice(6,9)];const player=Number(process.env.PLAYER);const name=process.env.NAME;const fixturePath=path.join("test","fixtures",name);fs.writeFileSync(path.join(fixturePath,"input.json"),JSON.stringify({board,player}));fs.writeFileSync(path.join(fixturePath,"moves.json"),process.env.MOVES);'
+	@node_modules/.bin/snarkjs groth16 fullprove \
 		test/fixtures/$(NAME)/input.json \
 		tic_tak_toe_js/tic_tak_toe.wasm \
 		circuit_final.zkey \
@@ -42,6 +51,7 @@ create-fixture:
 		test/fixtures/$(NAME)/public.json
 
 generate-all-fixtures:
+	@$(MAKE) create-fixture NAME=no_win PLAYER=0 MOVES="[]"
 	@echo "==> Generating all fixtures..."
 	@$(MAKE) create-fixture NAME=player0_wins_row0     PLAYER=0 MOVES="[[0,0,0],[1,0,1],[0,1,0],[1,1,1],[0,2,0]]"
 	@$(MAKE) create-fixture NAME=player0_wins_col0     PLAYER=0 MOVES="[[0,0,0],[0,1,1],[1,0,0],[1,1,1],[2,0,0]]"
@@ -50,7 +60,7 @@ generate-all-fixtures:
 	@$(MAKE) create-fixture NAME=player1_wins_row0     PLAYER=1 MOVES="[[1,0,0],[0,0,1],[1,2,0],[0,1,1],[2,1,0],[0,2,1]]"
 	@$(MAKE) create-fixture NAME=player1_wins_col1     PLAYER=1 MOVES="[[0,0,0],[0,1,1],[1,2,0],[1,1,1],[2,0,0],[2,1,1]]"
 	@$(MAKE) create-fixture NAME=player1_wins_diag     PLAYER=1 MOVES="[[0,1,0],[0,0,1],[2,0,0],[1,1,1],[1,2,0],[2,2,1]]"
-	@$(MAKE) create-fixture NAME=player1_wins_antidiag PLAYER=1 MOVES="[[2,2,0],[0,2,1],[2,0,0],[1,1,1],[0,1,0],[2,0,1]]"
+	@$(MAKE) create-fixture NAME=player1_wins_antidiag PLAYER=1 MOVES="[[2,2,0],[0,2,1],[1,0,0],[1,1,1],[0,1,0],[2,0,1]]"
 
 verify-fixture:
 	@if [ -z "$(NAME)" ]; then \
@@ -58,7 +68,7 @@ verify-fixture:
 		exit 1; \
 	fi
 	@echo "==> Verifying fixture: $(NAME)"
-	@npx snarkjs groth16 verify \
+	@node_modules/.bin/snarkjs groth16 verify \
 		verification_key.json \
 		test/fixtures/$(NAME)/public.json \
 		test/fixtures/$(NAME)/proof.json
@@ -69,10 +79,10 @@ calldata-fixture:
 		exit 1; \
 	fi
 	@echo "==> Exporting solidity calldata for fixture: $(NAME)"
-	npx snarkjs zkey export soliditycalldata \
+	node_modules/.bin/snarkjs zkey export soliditycalldata \
 		test/fixtures/$(NAME)/public.json \
 		test/fixtures/$(NAME)/proof.json
-	@node -e 'const fs=require("fs"); \
+	@bun -e 'const fs=require("fs"); \
 const proof=JSON.parse(fs.readFileSync("test/fixtures/$(NAME)/proof.json")); \
 const pub=JSON.parse(fs.readFileSync("test/fixtures/$(NAME)/public.json")); \
 const dec=x=>BigInt(x).toString(); \
@@ -89,6 +99,7 @@ fs.writeFileSync("test/fixtures/$(NAME)/calldata.json", JSON.stringify(out)); \
 console.log("Wrote test/fixtures/$(NAME)/calldata.json");'
 
 calldata-all:
+	@$(MAKE) calldata-fixture NAME=no_win
 	@echo "==> Generating calldata.json for all fixtures..."
 	@$(MAKE) calldata-fixture NAME=player0_wins_row0
 	@$(MAKE) calldata-fixture NAME=player0_wins_col0
@@ -103,7 +114,7 @@ clean:
 	@echo "==> Cleaning all generated files..."
 	rm -rf tic_tak_toe_js
 	rm -rf test/fixtures
-	rm -f pot12_*.ptau
+	rm -f pot$(PTAU_POWER)_*.ptau
 	rm -f circuit_*.zkey
 	rm -f tic_tak_toe.r1cs
 	rm -f tic_tak_toe.sym
@@ -123,3 +134,9 @@ help:
 	@echo "  make calldata-all"
 	@echo "  make clean"
 	@echo "  make help"
+
+soundness:
+	@mkdir -p tmp/soundness
+	bin/circom circuits/tic_tak_toe.circom --r1cs --wasm --sym --inspect -l node_modules -o tmp/soundness
+	node_modules/.bin/snarkjs r1cs export json tmp/soundness/tic_tak_toe.r1cs tmp/soundness/r1cs.json
+	bun scripts/check-circuit-soundness.cjs tmp/soundness

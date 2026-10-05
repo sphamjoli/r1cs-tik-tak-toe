@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.30;
 
 import {ITikTakToeVerifier} from "./ITikTakToeVerifier.sol";
 import {ITikTakToeGame} from "./ITikTakToeGame.sol";
@@ -9,6 +9,8 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {ERC20Upgradeable} from
     "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 
+/// @title Tic-tac-toe game and wrapped Ether escrow
+/// @notice Authenticates legal play before accepting a Groth16 winning-board proof.
 contract TikTakToeGame is
     ITikTakToeGame,
     Initializable,
@@ -20,19 +22,24 @@ contract TikTakToeGame is
     mapping(uint256 => Game) public games;
     uint256 public gameCount;
 
+    // Appended storage preserves the existing Game layout. Existing live games must be
+    // settled before upgrading: their funding and move authors cannot be recovered.
+    mapping(uint256 => Progress) private _progress;
+    uint256 public totalEscrow;
+    uint256 public constant ACTION_TIMEOUT = 1 days;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    /// @notice Initialize the contract
-    /// @param owner The address that will receive ownership
-    /// @param _verifier The address of the deployed Groth16 verifier
-    function initialize(address owner, address _verifier) public initializer {
+    /// @inheritdoc ITikTakToeGame
+    function initialize(address owner, address verifierAddress) public initializer {
+        require(verifierAddress.code.length > 0, InvalidVerifier());
         __Ownable_init(owner);
         __UUPSUpgradeable_init();
         __ERC20_init("Wrapped Tic-Tac-Toe Ether", "WTTT");
-        verifier = ITikTakToeVerifier(_verifier);
+        verifier = ITikTakToeVerifier(verifierAddress);
     }
 
     /// @inheritdoc ITikTakToeGame
@@ -41,48 +48,95 @@ contract TikTakToeGame is
     }
 
     /// @inheritdoc ITikTakToeGame
+    function gameProgress(uint256 gameId) external view returns (Progress memory) {
+        return _progress[gameId];
+    }
+
+    /// @inheritdoc ITikTakToeGame
+    function moveCommitment(uint256 gameId, Move calldata move) external view returns (bytes32) {
+        return _commitment(gameId, move);
+    }
+
+    /// @inheritdoc ITikTakToeGame
     function createGame(address opponent, uint256 stake) external returns (uint256) {
-        require(stake > 0, MustStakeTokens());
+        require(stake > 0 && stake <= type(uint256).max / 2, MustStakeTokens());
+        require(opponent != address(0) && opponent != address(this), InvalidOpponent());
         require(opponent != msg.sender, CannotPlayYourself());
         require(balanceOf(msg.sender) >= stake, InsufficientBalance());
-
         _transfer(msg.sender, address(this), stake);
+        totalEscrow += stake;
 
-        uint256 newGameId = gameCount++;
-        Game storage newGame = games[newGameId];
-        newGame.player0 = msg.sender;
-        newGame.player1 = opponent;
-        newGame.stake = stake;
-        newGame.active = true;
-        newGame.winner = address(0);
-        newGame.moveCount = 0;
-
-        emit GameCreated(newGameId, msg.sender, opponent, stake);
-        return newGameId;
+        uint256 gameId = gameCount++;
+        Game storage current = games[gameId];
+        current.player0 = msg.sender;
+        current.player1 = opponent;
+        current.stake = stake;
+        current.active = true;
+        Progress storage progress = _progress[gameId];
+        for (uint256 i = 0; i < 9; i++) {
+            progress.board[i] = 2;
+        }
+        emit GameCreated(gameId, msg.sender, opponent, stake);
+        return gameId;
     }
 
     /// @inheritdoc ITikTakToeGame
     function joinGame(uint256 gameId) external {
-        Game storage currentGame = games[gameId];
-        require(currentGame.active, GameNotActive());
-        require(msg.sender == currentGame.player1, NotAPlayer());
-        require(balanceOf(msg.sender) >= currentGame.stake, InsufficientBalance());
-
-        _transfer(msg.sender, address(this), currentGame.stake);
+        Game storage current = games[gameId];
+        Progress storage progress = _progress[gameId];
+        require(current.active, GameNotActive());
+        require(msg.sender == current.player1, NotAPlayer());
+        require(!progress.joined, AlreadyJoined());
+        require(balanceOf(msg.sender) >= current.stake, InsufficientBalance());
+        progress.joined = true;
+        progress.deadline = block.timestamp + ACTION_TIMEOUT;
+        totalEscrow += current.stake;
+        _transfer(msg.sender, address(this), current.stake);
+        emit GameJoined(gameId, msg.sender);
     }
 
     /// @inheritdoc ITikTakToeGame
-    function commitMove(uint256 gameId, bytes32 moveCommitment) external {
-        Game storage currentGame = games[gameId];
-        require(currentGame.active, GameNotActive());
+    function commitMove(uint256 gameId, bytes32 commitment) external {
+        Game storage current = games[gameId];
+        Progress storage progress = _progress[gameId];
+        _requireLiveTurn(current, progress);
+        require(progress.revealedCount == current.moveCount, MovesNotRevealed());
+        require(current.moveCount < 9, InvalidMove());
+        require(msg.sender == _player(current, current.moveCount % 2), NotYourTurn());
+        require(commitment != bytes32(0), InvalidMove());
+        current.moveCommitments.push(commitment);
+        current.moveCount++;
+        progress.deadline = block.timestamp + ACTION_TIMEOUT;
+        emit MoveCommitted(gameId, current.moveCount, commitment);
+    }
+
+    /// @inheritdoc ITikTakToeGame
+    function revealMove(uint256 gameId, Move calldata move) external {
+        Game storage current = games[gameId];
+        Progress storage progress = _progress[gameId];
+        _requireLiveTurn(current, progress);
+        require(progress.revealedCount < current.moveCount, InvalidMoveSequence());
+        uint8 player = progress.revealedCount % 2;
+        require(msg.sender == _player(current, player), NotYourTurn());
+        require(move.player == player, PlayerMismatch());
+        require(move.row < 3 && move.col < 3, InvalidMove());
         require(
-            msg.sender == currentGame.player0 || msg.sender == currentGame.player1, NotAPlayer()
+            _commitment(gameId, move) == current.moveCommitments[progress.revealedCount],
+            InvalidMoveSequence()
         );
+        uint256 position = uint256(move.row) * 3 + move.col;
+        require(progress.board[position] == 2, InvalidMove());
+        progress.board[position] = player;
+        progress.revealedCount++;
+        progress.deadline = block.timestamp + ACTION_TIMEOUT;
+        emit MoveRevealed(gameId, progress.revealedCount, move.row, move.col, player);
 
-        currentGame.moveCommitments.push(moveCommitment);
-        currentGame.moveCount++;
-
-        emit MoveCommitted(gameId, currentGame.moveCount, moveCommitment);
+        if (_hasWon(progress.board, player)) {
+            progress.outcome = player + 1;
+        } else if (progress.revealedCount == 9) {
+            progress.outcome = 3;
+            _refundDraw(gameId, current);
+        }
     }
 
     /// @inheritdoc ITikTakToeGame
@@ -96,75 +150,60 @@ contract TikTakToeGame is
     )
         external
     {
-        Game storage currentGame = games[gameId];
-
-        require(currentGame.active, GameNotActive());
+        Game storage current = games[gameId];
+        Progress storage progress = _progress[gameId];
+        require(current.active, GameNotActive());
+        require(progress.joined, GameNotJoined());
+        require(msg.sender == current.player0 || msg.sender == current.player1, NotAPlayer());
+        // Public signals are [has_won, board (row-major), player]. A valid proof
+        // of the detector returning zero is not a proof of victory.
+        require(publicSignals[0] == 1, InvalidProof());
+        require(progress.revealedCount == current.moveCount, MovesNotRevealed());
+        require(progress.outcome == 1 || progress.outcome == 2, NoWinningBoard());
+        uint256 player = progress.outcome - 1;
         require(
-            msg.sender == currentGame.player0 || msg.sender == currentGame.player1, NotAPlayer()
+            publicSignals[10] == player && msg.sender == _player(current, player), PlayerMismatch()
         );
-        require(currentGame.winner == address(0), WinnerAlreadyDeclared());
-        require(moves.length == currentGame.moveCommitments.length, InvalidMoveSequence());
-
-        for (uint256 moveIndex = 0; moveIndex < moves.length; moveIndex++) {
-            bytes32 expectedCommitment = keccak256(
-                abi.encode(
-                    moves[moveIndex].row,
-                    moves[moveIndex].col,
-                    moves[moveIndex].player,
-                    moves[moveIndex].salt
-                )
-            );
+        require(moves.length == current.moveCount, InvalidMoveSequence());
+        for (uint256 i = 0; i < moves.length; i++) {
             require(
-                expectedCommitment == currentGame.moveCommitments[moveIndex], InvalidMoveSequence()
+                _commitment(gameId, moves[i]) == current.moveCommitments[i], InvalidMoveSequence()
             );
         }
-
-        uint256[9] memory reconstructedBoard = _reconstructBoard(moves);
-        // Public signals structure from circuit:
-        // [1-9]: board (9 cells)
-        // [10]: player
-        // Note: has_won is NOT in public signals (it's signal 12 in witness but not exported)
-        // Verify reconstructed board matches circuit output (offset by 1 due to mystery signal)
         for (uint256 i = 0; i < 9; i++) {
-            require(reconstructedBoard[i] == publicSignals[i + 1], InvalidMoveSequence());
+            require(progress.board[i] == publicSignals[i + 1], InvalidMoveSequence());
         }
-
-        // Verify player from circuit matches caller
-        uint256 circuitPlayer = publicSignals[10];
-        require(circuitPlayer == 0 || circuitPlayer == 1, InvalidProof());
-
-        if (circuitPlayer == 0) {
-            require(msg.sender == currentGame.player0, PlayerMismatch());
-        } else {
-            require(msg.sender == currentGame.player1, PlayerMismatch());
-        }
-
-        // Verify the zero-knowledge proof
-        // The proof verification guarantees that has_won=1 was correctly computed by the circuit
         require(verifier.verifyProof(proofA, proofB, proofC, publicSignals), InvalidProof());
-
-        currentGame.winner = msg.sender;
-        currentGame.active = false;
-
-        uint256 payoutAmount = currentGame.stake * 2;
-        _transfer(address(this), msg.sender, payoutAmount);
-
-        emit WinClaimed(gameId, msg.sender, payoutAmount);
+        uint256 payout = _award(current, msg.sender);
+        emit WinClaimed(gameId, msg.sender, payout);
     }
 
     /// @inheritdoc ITikTakToeGame
     function cancelGame(uint256 gameId) external {
-        Game storage currentGame = games[gameId];
-
-        require(currentGame.active, GameNotActive());
-        require(
-            msg.sender == currentGame.player0 || msg.sender == currentGame.player1, NotAPlayer()
-        );
-        require(balanceOf(address(this)) < currentGame.stake * 2, GameNotActive());
-
-        currentGame.active = false;
-        _transfer(address(this), currentGame.player0, currentGame.stake);
+        Game storage current = games[gameId];
+        require(current.active, GameNotActive());
+        require(msg.sender == current.player0 || msg.sender == current.player1, NotAPlayer());
+        require(!_progress[gameId].joined, AlreadyJoined());
+        current.active = false;
+        totalEscrow -= current.stake;
+        _transfer(address(this), current.player0, current.stake);
         emit GameCancelled(gameId, msg.sender);
+    }
+
+    /// @inheritdoc ITikTakToeGame
+    function claimTimeout(uint256 gameId) external {
+        Game storage current = games[gameId];
+        Progress storage progress = _progress[gameId];
+        require(current.active, GameNotActive());
+        require(progress.joined, GameNotJoined());
+        require(progress.outcome == 0, GameFinished());
+        require(block.timestamp > progress.deadline, DeadlineNotPassed());
+        // The revealed count identifies the player who owes either the next
+        // commitment or its reveal. A commitment never passes the turn alone.
+        address winner = _player(current, 1 - progress.revealedCount % 2);
+        require(msg.sender == winner, NotAPlayer());
+        uint256 payout = _award(current, winner);
+        emit TimeoutClaimed(gameId, winner, payout);
     }
 
     /// @inheritdoc ITikTakToeGame
@@ -178,40 +217,65 @@ contract TikTakToeGame is
     function unwrap(uint256 amount) external {
         require(amount > 0, MustStakeTokens());
         require(balanceOf(msg.sender) >= amount, InsufficientBalance());
-
         _burn(msg.sender, amount);
-        (bool success,) = payable(msg.sender).call{value: amount}("");
-        require(success, "Transfer failed");
-
         emit Unwrapped(msg.sender, amount);
+        (bool success,) = payable(msg.sender).call{value: amount}("");
+        require(success, EtherTransferFailed());
     }
 
-    /// @notice Reconstruct board state from move sequence
-    /// @param moves Array of revealed moves
-    /// @return board Array of 9 cell values (0=player0, 1=player1, 2=empty)
-    function _reconstructBoard(Move[] calldata moves) internal pure returns (uint256[9] memory) {
-        uint256[9] memory board;
-        for (uint256 i = 0; i < 9; i++) {
-            board[i] = 2;
-        }
-
-        for (uint256 moveIndex = 0; moveIndex < moves.length; moveIndex++) {
-            require(moves[moveIndex].row < 3 && moves[moveIndex].col < 3, InvalidMove());
-            require(moves[moveIndex].player < 2, InvalidMove());
-
-            uint256 boardPosition = moves[moveIndex].row * 3 + moves[moveIndex].col;
-            require(board[boardPosition] == 2, InvalidMove());
-            board[boardPosition] = moves[moveIndex].player;
-        }
-
-        return board;
+    function _requireLiveTurn(Game storage current, Progress storage progress) private view {
+        require(current.active, GameNotActive());
+        require(progress.joined, GameNotJoined());
+        require(progress.outcome == 0, GameFinished());
+        require(block.timestamp <= progress.deadline, ActionExpired());
     }
 
-    /// @notice Authorize contract upgrades
-    /// @dev Only the owner can authorize upgrades
-    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
+    function _player(Game storage current, uint256 player) private view returns (address) {
+        return player == 0 ? current.player0 : current.player1;
+    }
 
-    /// @notice Receive ETH and wrap into tokens
+    function _commitment(uint256 gameId, Move calldata move) private view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                block.chainid, address(this), gameId, move.row, move.col, move.player, move.salt
+            )
+        );
+    }
+
+    // Bounded to the eight lines of a 3x3 board. Needed to stop legal play at
+    // the first win; the Groth16 proof still authenticates the final claim.
+    function _hasWon(uint256[9] memory board, uint256 player) private pure returns (bool) {
+        for (uint256 i = 0; i < 3; i++) {
+            if (board[i * 3] == player && board[i * 3 + 1] == player && board[i * 3 + 2] == player)
+            {
+                return true;
+            }
+            if (board[i] == player && board[i + 3] == player && board[i + 6] == player) return true;
+        }
+        return (board[0] == player && board[4] == player && board[8] == player)
+            || (board[2] == player && board[4] == player && board[6] == player);
+    }
+
+    function _award(Game storage current, address winner) private returns (uint256 payout) {
+        current.active = false;
+        current.winner = winner;
+        payout = current.stake * 2;
+        totalEscrow -= payout;
+        _transfer(address(this), winner, payout);
+    }
+
+    function _refundDraw(uint256 gameId, Game storage current) private {
+        current.active = false;
+        totalEscrow -= current.stake * 2;
+        _transfer(address(this), current.player0, current.stake);
+        _transfer(address(this), current.player1, current.stake);
+        emit GameDrawn(gameId);
+    }
+
+    /// @notice Only the owner may upgrade the implementation.
+    function _authorizeUpgrade(address) internal override onlyOwner {}
+
+    /// @notice Wraps received Ether at one token unit per wei.
     receive() external payable {
         _mint(msg.sender, msg.value);
         emit Wrapped(msg.sender, msg.value);

@@ -1,0 +1,8 @@
+{
+  "circomlibVersion": "2.0.5",
+  "sourceFiles": {
+    "circuits/tic_tak_toe.circom": "cb661e2b1175877287577632118eb1813eff82cba5e418eea539e806511d5896",
+    "node_modules/circomlib/circuits/comparators.circom": "fd0c7723ee56e1467df1861131157cbb108e156fe2d9ec64895c8e68de14db20",
+    "node_modules/circomlib/circuits/bitify.circom": "688f121303a2dd0154ceeda8d2f53a9d2d26789d10a69a46acd534642725683e"
+  }
+}

@@ -1,0 +1,13 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: decorative comments
+      run: bash scripts/run-bun.sh scripts/check-decorative-comments.cjs
+    - name: Lean soundness and axiom audit
+      run: bash scripts/run-bun.sh proofs/lean/check.cjs
+    - name: Solidity formatting
+      glob: "*.sol"
+      run: bash scripts/check-solidity-format.sh
+    - name: shell syntax
+      glob: "*.sh"
+      run: 'for script in {staged_files}; do bash -n "$script" || exit; done'
