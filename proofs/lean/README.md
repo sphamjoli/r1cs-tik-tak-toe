@@ -4,10 +4,10 @@ If a board and its auxiliary values satisfy the tic-tac-toe circuit's equations,
 
 ## Symbolic statement
 
-Let $F$ be a field of characteristic $q > 8$, $w$ a witness assignment, $B_w$ its board and $p_w$ its player. Let $L$ contain the three rows, three columns and two diagonals of the $3 \times 3$ board. Define
+Let $F$ be a field of characteristic $q > 8$, $w$ a witness assignment, $B_w$ its board and $p_w$ its player. Let $L$ contain the three rows, three columns and two diagonals of the $3 \times 3$ board. Define the winning predicate $W(w)$ (named `Wins w` in Lean):
 
 $$
-\operatorname{Wins}(w) \;\equiv\;
+W(w) \;\equiv\;
 \exists \ell \in L,\; \forall (i,j) \in \ell,\; B_w(i,j)=p_w.
 $$
 
@@ -16,12 +16,12 @@ With $C(w)$ denoting the modelled circuit constraints, the theorem is
 $$
 \forall w,\quad C(w) \Longrightarrow
 h_w=\begin{cases}
-1 & \text{if }\operatorname{Wins}(w),\\
+1 & \text{if }W(w),\\
 0 & \text{otherwise},
 \end{cases}
 $$
 
-where $h_w$ is `has_won`. The field elements $0$ and $1$ are distinct. Consequently, $C(w)$ implies $h_w=1 \iff \operatorname{Wins}(w)$.
+where $h_w$ is `has_won`. The field elements $0$ and $1$ are distinct. Consequently, $C(w)$ implies $h_w=1 \iff W(w)$.
 
 The corresponding declaration in [Soundness.lean](TicTacToe/Soundness.lean) is:
 
