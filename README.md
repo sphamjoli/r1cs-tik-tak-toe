@@ -30,7 +30,7 @@ with auxiliary variable w[i,j], ensuring E[i,j] ∈ {0,1} and E[i,j] = 1 ⟺ B[i
 
 For any line L = {(i₁,j₁), (i₂,j₂), ..., (iₙ,jₙ)}, the winning condition is:
 
-**W*L = ∏*{k=1}^n E[iₖ,jₖ]**
+**W_L = ∏_{k=1}^n E[iₖ,jₖ]**
 
 This product equals 1 if and only if all positions in line L contain player p's marker.
 
@@ -38,7 +38,7 @@ This product equals 1 if and only if all positions in line L contain player p's 
 
 The total winning indicator aggregates all possible lines:
 
-**W*total = ∑*{L ∈ Lines} W_L**
+**W_total = ∑_{L ∈ Lines} W_L**
 
 where Lines represents all rows, columns, and diagonals.
 
@@ -104,8 +104,8 @@ These restrict the cell to 0, 1 or 2. The player satisfies **p · (p - 1) = 0**.
 
 **∀i,j: (B[i,j] - p) · w[i,j] = E[i,j] - 1**
 **∀i,j: (B[i,j] - p) · E[i,j] = 0**
-**∀L ∈ Lines: W*L = ∏*{(i,j) ∈ L} E[i,j]**
-**W*total = ∑*{L ∈ Lines} W_L**
+**∀L ∈ Lines: W_L = ∏_{(i,j) ∈ L} E[i,j]**
+**W_total = ∑_{L ∈ Lines} W_L**
 **W_total · z = 1 - s**
 **W_total · s = 0**
 **s · (1 - s) = 0**
@@ -134,6 +134,14 @@ The [Lean proof](proofs/lean/README.md) states the detector theorem in plain lan
 
 ## Commit checks
 
-`bun install --frozen-lockfile` installs Lefthook through the `prepare` script. Use `bun run prepare` to reinstall the hooks in an existing checkout. The [hook configuration](lefthook.yml) follows the masters project's separate-job structure. Every commit runs the repository-wide decorative-comment check and the Lean source, build and axiom checks. Solidity and shell changes also trigger formatting and syntax checks. Hooks report failures without rewriting or staging files.
+`bun install --frozen-lockfile` installs Lefthook through the `prepare` script. Use `bun run prepare` to reinstall the hooks in an existing checkout. The [hook configuration](lefthook.yml) runs separate checks for the affected components. Every commit runs the repository-wide decorative-comment check and the Lean source, build and axiom checks. Solidity and shell changes also trigger formatting and syntax checks. Changes under `proofs/arkworks/` trigger the Rust formatting, Clippy, test and Rustdoc checks. Hooks report failures without rewriting or staging files.
 
 Run `bun run check` to check comments, Lean proofs and Solidity formatting manually. The Lean dependencies must first be installed with `bun proofs/lean/check.cjs --setup`; missing tools or dependencies fail the commit check.
+
+## Arkworks proof-boundary demonstration
+
+A proof of a winning board is useful only if that board matches the game being settled. The [Rust subproject](proofs/arkworks/README.md) demonstrates this with two genuine polynomial-commitment backends: KZG (Kate–Zaverucha–Goldberg) and IPA (inner-product argument), using Arkworks 0.6.0.
+
+The recorded game has only two moves and no winner. A separate, legally reachable board contains a winning row. Both backends accept the separate board's cryptographic openings and native winning-line check. A verifier that also compares the commitment and player against trusted game state rejects that submission for the recorded game. This illustrates why the proof's statement must be connected to the application's authenticated state.
+
+Run `cargo run --locked --manifest-path proofs/arkworks/Cargo.toml` to see both results. The subproject README explains its board encoding, commitment construction, verification checks and tests. All cells are public, and Rust checks the winning line directly; this demonstration does not supply a circuit SNARK or replace the game's Circom/Groth16 verifier. Its setup is for development, and its README records the unresolved upstream dependency advisory.
