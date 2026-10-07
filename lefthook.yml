@@ -11,3 +11,6 @@ pre-commit:
     - name: shell syntax
       glob: "*.sh"
       run: 'for script in {staged_files}; do bash -n "$script" || exit; done'
+    - name: Arkworks Rust checks
+      glob: "proofs/arkworks/**"
+      run: bash proofs/arkworks/check.sh

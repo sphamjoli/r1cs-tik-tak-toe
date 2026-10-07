@@ -1,0 +1,27 @@
+[package]
+name = "tic-tac-toe-proof-boundary"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "ISC"
+description = "KZG and IPA board openings demonstrating a missing tic-tac-toe game binding"
+
+[dependencies]
+ark-bls12-381 = { version = "=0.6.0", default-features = false, features = ["curve", "std"] }
+ark-crypto-primitives = { version = "=0.6.0", default-features = false, features = ["sponge", "std"] }
+ark-poly = { version = "=0.6.0", default-features = false, features = ["std"] }
+ark-poly-commit = { version = "=0.6.0", default-features = false, features = ["std"] }
+ark-serialize = { version = "=0.6.0", default-features = false, features = ["std"] }
+blake2 = "=0.10.6"
+rand = "=0.8.8"
+
+[dev-dependencies]
+rand_chacha = "=0.3.1"
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "deny"
+
+[lints.clippy]
+all = "warn"
